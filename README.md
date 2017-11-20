@@ -6,5 +6,4 @@
 ##### 3.代码保存在code文件夹中。prepare.py和jieba_cws.py分别对应提取和分词操作，bash pre.sh能直接执行两个文件。test和test1是学习Python代码。
 #### lstm_start:
 
-#####
- 主要是学习google官方的rnn代码
+##### 主要是学习google官方的rnn代码
