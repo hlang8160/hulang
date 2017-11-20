@@ -1,0 +1,49 @@
+解读tensoflow之rnn
+
+值得学习的地方
+(1) 设置is_training这个标志
+这个很有必要，因为training阶段和valid/test阶段参数设置上会有小小的区别，比如test时不进行dropout
+(2) 将必要的各类参数都写在config类中独立管理
+这个的好处就是各类参数的配置工作和model类解耦了，不需要将大量的参数设置写在model中，那样可读性不仅差，还不容易看清究竟设置了哪些超参数
+
+placeholder
+两个，分别命名为self._input_data和self._target，只是注意一下，由于我们现在要训练的模型是language model，
+也就是给一个word，预测最有可能的下一个word，因此可以看出来，input和output是同型的。并且，placeholder只存储一个batch的data，
+input接收的是个word在vocabulary中对应的index【后续会将index转成dense embedding】,每次接收一个seq长度的words，那么，input shape=[batch_size, num_steps]
+
+
+图中的context就是一个cell结构，可以看到它接受的输入有input(t)，context(t-1)，然后输出output(t)，比
+如像我们这个任务中，用到多层堆叠的rnn cell的话，也就是当前层的cell的output还要作为下一层cell的输入，因此可推出每个cell的输入和输出的shape是一样。
+如果输入的shape=(None, n)，加上context(t-1)同时作为输入部分，因此可以知道W的shape=(2n, n)。
+说了这么多，其实我只是想表达一个重点，就是
+
+别小看那一个小小的cell，它并不是只有1个neuron unit，而是n个hidden units
+
+因此，我们注意到tensorflow中定义一个cell（BasicRNNCell/BasicLSTMCell/GRUCell/RNNCell/LSTMCell）结构的时候需要提供的一个参数就是hidden_units_size
+
+
+
+initial states
+接下来就需要给我们的multi lstm cell进行状态初始化。怎么做呢？Zaremba已经告诉我们了
+
+We initialize the hidden states to zero. We then use the
+final hidden states of the current minibatch as the initial hidden state of the subsequent minibatch
+(successive minibatches sequentially traverse the training set).
+
+也就是初始时全部赋值为0状态。
+那么就需要有一个self._initial_state来保存我们生成的全0状态，最后直接调用MultiRNNCell的zero_state()方法即可。
+1
+self._initial_state = cell.zero_state(batch_size, tf.float32)
+
+
+embedding input
+我们预处理了数据之后得到的是一个二维array，每个位置的元素表示这个word在vocabulary中的index。
+但是传入graph的数据不能讲word用index来表示，这样词和词之间的关系就没法刻画了。我们需要将word用dense vector表示，这也就是广为人知的word embedding。
+paper中并没有使用预训练的word embedding，所有的embedding都是随机初始化，然后在训练过程中不断更新embedding矩阵的值。
+
+首先要明确几点：
+
+既然我们要在训练过程中不断更新embedding矩阵，那么embedding必须是tf.Variable并且trainable=True（default）
+目前tensorflow对于lookup embedding的操作只能再cpu上进行
+embedding矩阵的大小是多少：每个word都需要有对应的embedding vector，总共就是vocab_size那么多个embedding，每个word embed成多少维的vector呢？因为我们input embedding后的结果就直接输入给了第一层cell，刚才我们知道cell的hidden units size，因此这个embedding dim要和hidden units size对应上（这也才能和内部的各种门的W和b完美相乘）。因此，我们就确定下来embedding matrix shape=[vocab_size, hidden_units_size]
+最后生成真正的inputs节点，也就是从embedding_lookup之后得到的结果，这个tensor的shape=batch_size, num_stemps, size
